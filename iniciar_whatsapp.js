@@ -3,6 +3,9 @@ const qrcode = require('qrcode-terminal');
 const readline = require('readline');
 const fs = require('fs');
 
+// Evitar erros de no such file or directory, criando a pasta se não existir
+fs.mkdirSync('./contatos', { recursive: true });
+
 // Aqui salvamos um LocalAuth para podermos manter a sessão do whatsapp
 const client = new Client({
     authStrategy: new LocalAuth({
@@ -21,7 +24,7 @@ client.on('qr', (qr) => {
 });
 
 // será usado no arquivo de server.js para bloquear posts enquanto o cliente não estiver pronto
-const isReady = false;
+let isReady = false;
 
 client.on('ready', () => {
 
@@ -45,12 +48,12 @@ client.on('ready', () => {
 
             }
 
-            console.log('Contatos e grupos salvos nos arquivos contatos.txt e grupos.txt');
         });
+        console.log('Contatos e grupos salvos nos arquivos contatos.txt e grupos.txt');
     });
 });
 
 client.initialize();
 
 // exportando o client para ser usado em server.js
-module.exports = { client, isReady };
+module.exports = { client, isReady: () => isReady };

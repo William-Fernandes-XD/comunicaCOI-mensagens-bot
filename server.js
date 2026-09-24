@@ -1,20 +1,42 @@
 const express = require('express');
-const client = require('./iniciar_whatsapp');
+const {client, isReady} = require('./iniciar_whatsapp');
 
 const app = express();
 
 app.use(express.json());
 
 app.post('/enviar', async(req, res) => {
+
+    const { chatId, message, mentions } = req.body;
     
-    if(!client.isReady) {
+    if(!isReady()) {
         return res.status(500).json({ error: 'O cliente do WhatsApp não está pronto. Por favor, aguarde a inicialização.' });
     }
 
     try{
 
+        const chat = await client.getChatById(chatId);
         
+        if (!chat) {
+            return res.status(404).json({ error: 'Chat não encontrado.' });
+        }
 
+        const safeMentions = (mentions || []).map(n => {
+            if(!n) return null;
+            let id = n.includes('@c.us') ? n : `${n}@c.us`;
+            return id;
+        }).filter(Boolean);
+
+        const mentionText = safeMentions.map(id => `@${id.split('@')[0]}`).join(' ');
+
+        const finalMessage = `${message}\n\n${mentionText}`;
+
+        await chat.sendMessage(finalMessage, {
+            mentions: safeMentions
+        });
+
+        console.log(`Mensagem enviada para: ${chat.name} || data: ${new Date().toISOString()}`);
+        res.json({ ok: true });
     }catch(error){
         console.error('Erro ao enviar mensagem:', error);
         res.status(500).json({ error: 'Ocorreu um erro ao enviar a mensagem.' });

@@ -1,10 +1,12 @@
 from database_conexoes.comunicaCOI_database_connection import conectar
 import schedule
 from datetime import datetime, timedelta
+import requests
 import json
 import os
 import time
 from utilitarios.variaveis_env import safe_env_get, safe_env_get_split
+from time import sleep
 
 # =========================
 # MAPA DE GRUPOS
@@ -109,7 +111,6 @@ def enviar_mensagem_pendencias():
 
         ## ocorrencias vindas do banco
         ocorrencias_banco = set()
-        print("Pendências encontradas:", len(pendencias))
 
         for row in pendencias:
             idx, regional, ocorrencia, afetacao, info, tipo, minutos, status, prazo_comercial = row
@@ -117,6 +118,12 @@ def enviar_mensagem_pendencias():
             idx = str(idx)
 
             ocorrencias_banco.add(idx)
+
+            ## Resgatando os grupos do whatsapp
+            chave_env = MAPA_REGIONAIS.get(regional)
+            id_whatsapp = safe_env_get(chave_env)
+            marcados_whatsapp = []
+            mensagem = ""
 
             ## verificando se a ocorrencia já foi enviada e adicionando o nível de envio
             if idx in cache:
@@ -136,24 +143,50 @@ def enviar_mensagem_pendencias():
                         if nivel_atual < 3:
                             nivel_atual += 1
                             cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                ## Resgatando os grupos do whatsapp
-                chave_env = MAPA_REGIONAIS.get(regional)
 
                 if not chave_env:
                     print(f"Regional '{regional}' não encontrada no mapa de grupos. Verifique a configuração.")
                     continue
-
-                id_whatsapp = safe_env_get(chave_env)
 
                 ## Resgatando os líderes, executivos e gerentes
                 lideres = safe_env_get_split(safe_env_get(LIDERES_REGIONAIS.get(regional)))
                 executivos = safe_env_get_split(safe_env_get(EXECUTIVOS_REGIONAIS.get(regional)))
                 gerentes = safe_env_get_split(safe_env_get(GERENTES_REGIONAIS.get(regional)))
 
-                
+                if nivel_atual == 1:
+                    marcados_whatsapp = lideres
+                elif nivel_atual == 2:
+                    marcados_whatsapp = lideres + executivos
+                elif nivel_atual == 3:
+                    marcados_whatsapp = lideres + executivos + gerentes
+
+                # remove vazios e duplicados
+                marcados_whatsapp = list(set([m for m in marcados_whatsapp if m]))
 
 
+                ## Despachando mensagem emergencial e comercial
+                if tipo == 'Emergencial':
+                    mensagem = (
+                        f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
+                        f" *Regional:* {regional.upper()}\n"
+                        f" *ID:* {idx}\n"
+                        f" *Ocorrência:* {ocorrencia}\n"
+                        f" *Afetação:* {afetacao}\n"
+                        f" *Tipo:* {tipo}\n"
+                        f" *Aguardando:* {minutos} min\n"
+                        f" *Solicitação:* {info if info else 'N/A'}"
+                    )
+                else:
+                    mensagem = (
+                        f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
+                        f" *Regional:* {regional.upper()}\n"
+                        f" *ID:* {idx}\n"
+                        f" *Ocorrência:* {ocorrencia}\n"
+                        f" *Tipo:* {tipo}\n"
+                        f" *Prazo Comercial:* {prazo_comercial}\n"
+                        f" *Aguardando:* {minutos} min\n"
+                        f" *Solicitação:* {info if info else 'N/A'}"
+                    )
                 
                 cache[idx]["nivel"] = nivel_atual
 
@@ -167,7 +200,28 @@ def enviar_mensagem_pendencias():
                     "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
+            
+            if id_whatsapp is None or id_whatsapp.strip() == "":
+                print(f"ID do grupo WhatsApp para a regional '{regional}' não encontrado. Verifique a configuração.")
+                continue
+
+            try:
+                payload = {
+                    "chatId": id_whatsapp,
+                    "message": mensagem,
+                    "mentions": marcados_whatsapp if marcados_whatsapp else []
+                }
+
+                res = requests.post(safe_env_get("WA_SERVER_URL"), json=payload, timeout=10)
                             
+                if res.status_code == 200:
+                    print(f"Nível {nivel_atual} enviado para {regional} (ID {idx})")
+
+                else:
+                    print(f"Falha ao enviar mensagem para {regional} (ID {idx}). Status code: {res.status_code}, Response: {res.text}")
+            except Exception as e:
+                print(f"Erro ao enviar mensagem para {regional} (ID {idx}): {e}")
+            sleep(1) 
         ## removendo ocorrencias que não estão mais no banco de dados, para manter limpo
         cache = {
             idx: dados

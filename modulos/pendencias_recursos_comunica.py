@@ -132,14 +132,14 @@ def enviar_mensagem_pendencias():
 
                 ######### SOLICITAÇÃO DE PENDÊNCIA - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
                 if status == 'Pendente':
-                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=2):
+                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=60):
                         if nivel_atual < 3:
                             nivel_atual += 1
                             cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 ######### SOLICITAÇÃO DE AGUARDANDO - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
                 elif status == 'Aguardando':
-                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=5):
+                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=120):
                         if nivel_atual < 3:
                             nivel_atual += 1
                             cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -209,7 +209,8 @@ def enviar_mensagem_pendencias():
                 payload = {
                     "chatId": id_whatsapp,
                     "message": mensagem,
-                    "mentions": marcados_whatsapp if marcados_whatsapp else []
+                    "mentions": marcados_whatsapp if marcados_whatsapp else [],
+                    "regional": regional
                 }
 
                 res = requests.post(safe_env_get("WA_SERVER_URL"), json=payload, timeout=10)

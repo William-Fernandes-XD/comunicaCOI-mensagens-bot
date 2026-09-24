@@ -7,19 +7,13 @@ app.use(express.json());
 
 app.post('/enviar', async(req, res) => {
 
-    const { chatId, message, mentions } = req.body;
+    const { chatId, message, mentions, regional } = req.body;
     
     if(!isReady()) {
         return res.status(500).json({ error: 'O cliente do WhatsApp não está pronto. Por favor, aguarde a inicialização.' });
     }
 
     try{
-
-        const chat = await client.getChatById(chatId);
-        
-        if (!chat) {
-            return res.status(404).json({ error: 'Chat não encontrado.' });
-        }
 
         const safeMentions = (mentions || []).map(n => {
             if(!n) return null;
@@ -31,11 +25,11 @@ app.post('/enviar', async(req, res) => {
 
         const finalMessage = `${message}\n\n${mentionText}`;
 
-        await chat.sendMessage(finalMessage, {
+        await client.sendMessage(chatId, finalMessage, {
             mentions: safeMentions
         });
 
-        console.log(`Mensagem enviada para: ${chat.name} || data: ${new Date().toISOString()}`);
+        console.log(`Mensagem enviada para: ${regional} || data: ${new Date().toISOString()}`);
         res.json({ ok: true });
     }catch(error){
         console.error('Erro ao enviar mensagem:', error);

@@ -1,0 +1,6 @@
+.wwebjs_auth/
+.wwebjs_cache/
+cache_enviado/
+contatos/
+.env
+node_modules/

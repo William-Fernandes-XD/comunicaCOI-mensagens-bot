@@ -1,0 +1,192 @@
+from database_conexoes.comunicaCOI_database_connection import conectar
+import schedule
+from datetime import datetime, timedelta
+import json
+import os
+import time
+from utilitarios.variaveis_env import safe_env_get, safe_env_get_split
+
+# =========================
+# MAPA DE GRUPOS
+# =========================
+
+MAPA_REGIONAIS = {
+    "Goiânia": "GRUPO_GOIANIA",
+    "Formosa": "GRUPO_FORMOSA",
+    "Rio Verde": "GRUPO_RIO_VERDE",
+    "Luziânia": "GRUPO_LUZIANIA",
+    "Morrinhos": "GRUPO_MORRINHOS",
+    "Iporá": "GRUPO_IPORA",
+    "Montes Belos": "GRUPO_MONTES_BELOS",
+    "Anápolis": "GRUPO_ANAPOLIS",
+    "Uruaçu": "GRUPO_URUACU",
+    "Metropolitana": "GRUPO_METROPOLITANA"
+}
+
+LIDERES_REGIONAIS = {
+    "Goiânia": "LIDERES_GOIANIA",
+    "Formosa": "LIDERES_FORMOSA",
+    "Rio Verde": "LIDERES_RIO_VERDE",
+    "Luziânia": "LIDERES_LUZIANIA",
+    "Morrinhos": "LIDERES_MORRINHOS",
+    "Iporá": "LIDERES_IPORA",
+    "Montes Belos": "LIDERES_MONTES_BELOS",
+    "Anápolis": "LIDERES_ANAPOLIS",
+    "Uruaçu": "LIDERES_URUACU",
+    "Metropolitana": "LIDERES_METROPOLITANA"
+}
+
+EXECUTIVOS_REGIONAIS = {
+    "Goiânia": "EXECUTIVOS_GOIANIA",
+    "Formosa": "EXECUTIVOS_FORMOSA",
+    "Rio Verde": "EXECUTIVOS_RIO_VERDE",
+    "Luziânia": "EXECUTIVOS_LUZIANIA",
+    "Morrinhos": "EXECUTIVOS_MORRINHOS",
+    "Iporá": "EXECUTIVOS_IPORA",
+    "Montes Belos": "EXECUTIVOS_MONTES_BELOS",
+    "Anápolis": "EXECUTIVOS_ANAPOLIS",
+    "Uruaçu": "EXECUTIVOS_URUACU",
+    "Metropolitana": "EXECUTIVOS_METROPOLITANA"
+}
+
+GERENTES_REGIONAIS = {
+    "Goiânia": "GERENTES_GOIANIA",
+    "Formosa": "GERENTES_FORMOSA",
+    "Rio Verde": "GERENTES_RIO_VERDE",
+    "Luziânia": "GERENTES_LUZIANIA",
+    "Morrinhos": "GERENTES_MORRINHOS",
+    "Iporá": "GERENTES_IPORA",
+    "Montes Belos": "GERENTES_MONTES_BELOS",
+    "Anápolis": "GERENTES_ANAPOLIS",
+    "Uruaçu": "GERENTES_URUACU",
+    "Metropolitana": "GERENTES_METROPOLITANA"
+}
+
+def verificar_pendencias():
+    connection = conectar()
+    cursor = connection.cursor()
+
+    # Consulta SQL para verificar pendências
+    with open("sql/pendencias_recursos_comunica.sql", "r") as file:
+        query = file.read()
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    rows = [
+        tuple(valor.read() if hasattr(valor, "read") else valor for valor in row)
+        for row in rows
+    ]
+
+    cursor.close()
+    connection.close()
+
+    return rows
+
+def enviar_mensagem_pendencias():
+
+    hora_atual = datetime.now().time()
+
+    if hora_atual >= datetime.strptime("05:00", "%H:%M").time() and hora_atual <= datetime.strptime("23:00", "%H:%M").time():
+        pendencias = verificar_pendencias()
+
+        ## verificando cache de ocorrencias já enviadas
+        arquivo_cache = "cache_enviado/pendencias_comunica.json"
+
+        ## garantindo que existe a pasta cache_enviado
+        os.makedirs("cache_enviado", exist_ok=True)
+
+        ## verificando se o arquivo de cache existe e carregando-o
+        if(os.path.exists(arquivo_cache)):
+            with open(arquivo_cache, "r", encoding="utf-8") as arquivo:
+                try:
+                    cache = json.load(arquivo)
+                except json.JSONDecodeError:
+                    print("Erro ao decodificar o arquivo de cache. O arquivo pode estar corrompido.")
+                    cache = {}
+        else:
+            cache = {}
+
+        ## ocorrencias vindas do banco
+        ocorrencias_banco = set()
+        print("Pendências encontradas:", len(pendencias))
+
+        for row in pendencias:
+            idx, regional, ocorrencia, afetacao, info, tipo, minutos, status, prazo_comercial = row
+
+            idx = str(idx)
+
+            ocorrencias_banco.add(idx)
+
+            ## verificando se a ocorrencia já foi enviada e adicionando o nível de envio
+            if idx in cache:
+                nivel_atual = cache[idx]["nivel"]
+                cache[idx]["status"] = status
+
+                ######### SOLICITAÇÃO DE PENDÊNCIA - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
+                if status == 'Pendente':
+                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=2):
+                        if nivel_atual < 3:
+                            nivel_atual += 1
+                            cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                ######### SOLICITAÇÃO DE AGUARDANDO - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
+                elif status == 'Aguardando':
+                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=5):
+                        if nivel_atual < 3:
+                            nivel_atual += 1
+                            cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                ## Resgatando os grupos do whatsapp
+                chave_env = MAPA_REGIONAIS.get(regional)
+
+                if not chave_env:
+                    print(f"Regional '{regional}' não encontrada no mapa de grupos. Verifique a configuração.")
+                    continue
+
+                id_whatsapp = safe_env_get(chave_env)
+
+                ## Resgatando os líderes, executivos e gerentes
+                lideres = safe_env_get_split(safe_env_get(LIDERES_REGIONAIS.get(regional)))
+                executivos = safe_env_get_split(safe_env_get(EXECUTIVOS_REGIONAIS.get(regional)))
+                gerentes = safe_env_get_split(safe_env_get(GERENTES_REGIONAIS.get(regional)))
+
+                
+
+
+                
+                cache[idx]["nivel"] = nivel_atual
+
+            ## nova ocorrência, adicionando ao cache com nível 1
+            else:
+                cache[idx] = {
+                    "nivel": 0,
+                    "status": status,
+                    "regional": regional,
+                    "ocorrencia": ocorrencia,
+                    "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                            
+        ## removendo ocorrencias que não estão mais no banco de dados, para manter limpo
+        cache = {
+            idx: dados
+            for idx, dados in cache.items()
+            if idx in ocorrencias_banco
+        }
+
+        # Salva o cache atualizado
+        with open(arquivo_cache, "w", encoding="utf-8") as arquivo:
+            json.dump(cache, arquivo, ensure_ascii=False, indent=4)
+
+# Loop agendado
+schedule.every(1).minutes.do(enviar_mensagem_pendencias)
+
+if __name__ == "__main__":
+    enviar_mensagem_pendencias()
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+
+

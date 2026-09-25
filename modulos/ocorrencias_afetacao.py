@@ -111,7 +111,6 @@ def enviar_mensagem_ocorrencia_afetacao():
 
 
             data_ultimo_evento_to_date = datetime.strptime(data_ultimo_evento, "%d/%m/%Y %H:%M:%S")
-            print(data_ultimo_evento_to_date)
 
             if ((datetime.now() - data_ultimo_evento_to_date) > timedelta(minutes=10)):
                 if ocorrencia in cache:

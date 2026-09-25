@@ -56,7 +56,7 @@ def enviar_mensagem_ocorrencia_afetacao():
     ocorrencias_banco = set()
 
     for row in ocorrencias:
-        data_inicio_oco, ocorrencia, regional, subestacao, alimentador_id, instalacao, clientes_pendentes, status, motivo_reclamacao = row
+        data_inicio_oco, ocorrencia, regional, subestacao, alimentador_id, instalacao, clientes_pendentes, motivo_reclamacao, status, data_ultimo_evento = row
 
         ocorrencia = str(ocorrencia)
 
@@ -104,25 +104,30 @@ def enviar_mensagem_ocorrencia_afetacao():
 
             enviar_mensagem = False
 
+            ## Verifica se o ultimo evento do banco tem mais de 10 minutos
             ## Validando se nosso dado vindo do banco já existe
             ## Caso exista, então faça uma verficação se a afetação variou
             ## Se variar, reenvie. Caso contrário, não envie
-            if ocorrencia in cache:
-                 if clientes_pendentes != cache[ocorrencia]["afetacao"]:
-                    enviar_mensagem = True
-                    cache[ocorrencia]["ultima_atualizacao"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+            data_ultimo_evento_to_date = datetime.strptime(data_ultimo_evento, "%d/%m/%Y %H:%M:%S")
+
+            if ((datetime.now() - data_ultimo_evento_to_date) > timedelta(minutes=10)):
+                if ocorrencia in cache:
                     cache[ocorrencia]["afetacao"] = clientes_pendentes
-            else:
-                cache[ocorrencia] = {
-                    "ocorrencia": ocorrencia,
-                    "regional": regional,
-                    "subestacao": subestacao,
-                    "alimentador": alimentador_id,
-                    "afetacao": clientes_pendentes,
-                    "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                enviar_mensagem = True
+                    if (clientes_pendentes > cache[ocorrencia]["afetacao"]):
+                        enviar_mensagem = True
+                        cache[ocorrencia]["ultima_atualizacao"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                else:
+                    cache[ocorrencia] = {
+                        "ocorrencia": ocorrencia,
+                        "regional": regional,
+                        "subestacao": subestacao,
+                        "alimentador": alimentador_id,
+                        "afetacao": clientes_pendentes,
+                        "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    enviar_mensagem = True
 
             if enviar_mensagem:
                 try:

@@ -1,5 +1,4 @@
 from database_conexoes.comunicaCOI_database_connection import conectar
-import schedule
 from datetime import datetime, timedelta
 import requests
 import json
@@ -67,24 +66,28 @@ GERENTES_REGIONAIS = {
 
 def verificar_pendencias():
     connection = conectar()
-    cursor = connection.cursor()
 
-    # Consulta SQL para verificar pendências
-    with open("sql/pendencias_recursos_comunica.sql", "r") as file:
-        query = file.read()
+    try:
+        with connection.cursor() as cursor:
+            with open("sql/pendencias_recursos_comunica.sql", "r") as file:
+                query = file.read()
 
-    cursor.execute(query)
-    rows = cursor.fetchall()
+            cursor.execute(query)
+            rows = cursor.fetchall()
 
-    rows = [
-        tuple(valor.read() if hasattr(valor, "read") else valor for valor in row)
-        for row in rows
-    ]
+            rows = [
+                tuple(
+                    valor.read() if hasattr(valor, "read") else valor
+                    for valor in row
+                )
+                for row in rows
+            ]
 
-    cursor.close()
-    connection.close()
+            return rows
 
-    return rows
+    finally:
+        connection.close()
+
 
 
 def enviar_mensagem_pendencias():
@@ -277,27 +280,36 @@ def enviar_mensagem_pendencias():
             ## DESPACHANDO MENSAGEM EMERGENCIAL E COMERCIAL
             ## ==========================================================
 
+            minutos = round(minutos)
+            horas = minutos // 60
+            minutos_restantes = minutos % 60
+
+            if horas > 0:
+                tempo_aguardando = f"{horas}h e {minutos_restantes}m"
+            else:
+                tempo_aguardando = f"{minutos_restantes}m"
+
             if tipo == 'Emergencial':
                 mensagem = (
                     f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
-                    f" *Regional:* {regional.upper()}\n"
-                    f" *ID:* {idx}\n"
-                    f" *Ocorrência:* {ocorrencia}\n"
-                    f" *Afetação:* {afetacao}\n"
-                    f" *Tipo:* {tipo}\n"
-                    f" *Aguardando:* {minutos} min\n"
-                    f" *Solicitação:* {info if info else 'N/A'}"
+                    f"*Regional:* {regional.upper()}\n"
+                    f"*ID:* {idx}\n"
+                    f"*Ocorrência:* {ocorrencia}\n"
+                    f"*Afetação:* {afetacao}\n"
+                    f"*Tipo:* {tipo}\n"
+                    f"*Aguardando:* {tempo_aguardando}\n"
+                    f"*Solicitação:* {info if info else 'N/A'}"
                 )
             else:
                 mensagem = (
                     f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
-                    f" *Regional:* {regional.upper()}\n"
-                    f" *ID:* {idx}\n"
-                    f" *Ocorrência:* {ocorrencia}\n"
-                    f" *Tipo:* {tipo}\n"
-                    f" *Prazo Comercial:* {prazo_comercial}\n"
-                    f" *Aguardando:* {minutos} min\n"
-                    f" *Solicitação:* {info if info else 'N/A'}"
+                    f"*Regional:* {regional.upper()}\n"
+                    f"*ID:* {idx}\n"
+                    f"*Ocorrência:* {ocorrencia}\n"
+                    f"*Tipo:* {tipo}\n"
+                    f"*Prazo Comercial:* {prazo_comercial}\n"
+                    f"*Aguardando:* {tempo_aguardando}\n"
+                    f"*Solicitação:* {info if info else 'N/A'}"
                 )
 
             ## Aumentando o nível para a próxima iteração de nivel hierarquico
@@ -338,7 +350,7 @@ def enviar_mensagem_pendencias():
 
                 if res.status_code == 200:
                     print(
-                        f"✅ Nível {nivel_atual} enviado para "
+                        f"✅ [{datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] Nível {nivel_atual} enviado para "
                         f"{regional} (ID {idx})"
                     )
 
@@ -367,14 +379,3 @@ def enviar_mensagem_pendencias():
         # Salva o cache atualizado
         with open(arquivo_cache, "w", encoding="utf-8") as arquivo:
             json.dump(cache, arquivo, ensure_ascii=False, indent=4)
-
-
-# Loop agendado
-schedule.every(1).minutes.do(enviar_mensagem_pendencias)
-
-if __name__ == "__main__":
-    enviar_mensagem_pendencias()
-
-    while True:
-        schedule.run_pending()
-        time.sleep(1)

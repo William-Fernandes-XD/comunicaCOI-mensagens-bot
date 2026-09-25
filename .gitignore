@@ -4,3 +4,6 @@ cache_enviado/
 contatos/
 .env
 node_modules/
+modulos/__pycache__/
+database_conexoes/__pycache__/
+utilitarios/__pycache__/

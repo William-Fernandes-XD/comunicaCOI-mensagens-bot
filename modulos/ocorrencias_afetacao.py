@@ -5,6 +5,8 @@ import time
 from utilitarios.variaveis_env import safe_env_get, safe_env_get_split
 from time import sleep
 from datetime import datetime, timedelta
+import os 
+import json
 
 def verificar_ocorrencias():
     connection = conectar()
@@ -77,13 +79,13 @@ def enviar_mensagem_ocorrencia_afetacao():
         
         if (clientes_pendentes >= 300):
             
-            if clientes_pendentes >= 400:
+            if clientes_pendentes >= 1000:
                 lideres = safe_env_get_split(safe_env_get("RIBAS_LIDER"))
                 executivos = safe_env_get_split(safe_env_get("DERIVAN_EXECUTIVO"))
                 gerentes = safe_env_get_split(safe_env_get("VINICYUS_GERENTE"))
                 marcados_whatsapp = lideres + executivos + gerentes
 
-            elif clientes_pendentes >= 350:
+            elif clientes_pendentes >= 500:
                 lideres = safe_env_get_split(safe_env_get("RIBAS_LIDER"))
                 executivos = safe_env_get_split(safe_env_get("DERIVAN_EXECUTIVO"))
                 marcados_whatsapp = lideres + executivos
@@ -94,22 +96,24 @@ def enviar_mensagem_ocorrencia_afetacao():
             else:
                 continue
 
-            enviar_mensagem = false
+            enviar_mensagem = False
 
             if ocorrencia in cache:
-                 if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=3):
-                    #### FINALIZAR A PARTE DE CACHE DO ENVIO DE MENSAGENS
+                 if datetime.now() - datetime.strptime(cache[ocorrencia]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=3):
+                    enviar_mensagem = True
+                    cache[ocorrencia]["ultima_atualizacao"] = (datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             else:
-                cache[idx] = {
+                cache[ocorrencia] = {
                     "ocorrencia": ocorrencia,
                     "regional": regional,
                     "subestacao": subestacao,
                     "alimentador": alimentador_id,
-                    "afetacao": clientes_pendentes
+                    "afetacao": clientes_pendentes,
                     "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
-                enviar_mensagem = true
+                enviar_mensagem = True
+
             try:
                 payload = {
                     "chatId": id_whatsapp,
@@ -128,7 +132,7 @@ def enviar_mensagem_ocorrencia_afetacao():
             sleep(1) 
 
 
-schedule.every(6).minutes.do(enviar_mensagem_ocorrencia_afetacao)
+schedule.every(1).minutes.do(enviar_mensagem_ocorrencia_afetacao)
 
 if __name__ == "__main__":
     enviar_mensagem_ocorrencia_afetacao()

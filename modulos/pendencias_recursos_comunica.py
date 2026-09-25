@@ -64,6 +64,7 @@ GERENTES_REGIONAIS = {
     "Metropolitana": "GERENTES_METROPOLITANA"
 }
 
+
 def verificar_pendencias():
     connection = conectar()
     cursor = connection.cursor()
@@ -84,6 +85,7 @@ def verificar_pendencias():
     connection.close()
 
     return rows
+
 
 def enviar_mensagem_pendencias():
 
@@ -121,89 +123,204 @@ def enviar_mensagem_pendencias():
 
             ## Resgatando os grupos do whatsapp
             chave_env = MAPA_REGIONAIS.get(regional)
+
+            if not chave_env:
+                print(f"Regional '{regional}' não encontrada no mapa de grupos. Verifique a configuração.")
+                continue
+
             id_whatsapp = safe_env_get(chave_env)
             marcados_whatsapp = []
             mensagem = ""
 
-            ## verificando se a ocorrencia já foi enviada e adicionando o nível de envio
-            if idx in cache:
-                nivel_atual = cache[idx]["nivel"]
-                cache[idx]["status"] = status
+            ## ==========================================================
+            ## NOVA OCORRÊNCIA
+            ## ==========================================================
+            if idx not in cache:
 
-                ######### SOLICITAÇÃO DE PENDÊNCIA - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
-                if status == 'Pendente':
-                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=60):
-                        if nivel_atual < 3:
-                            nivel_atual += 1
-                            cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ## nova ocorrência, adicionando ao cache com nível 1
+                ## A mensagem NÃO será enviada agora.
+                ## O sistema começará a contar o tempo a partir deste momento.
+                nivel_atual = 0
 
-                ######### SOLICITAÇÃO DE AGUARDANDO - AUMENTANDO O NÍVEL DE ENVIO CONFORME O TEMPO PASSA E ENVIANDO MENSAGEM
-                elif status == 'Aguardando':
-                    if datetime.now() - datetime.strptime(cache[idx]["ultima_atualizacao"], "%Y-%m-%d %H:%M:%S") >= timedelta(minutes=120):
-                        if nivel_atual < 3:
-                            nivel_atual += 1
-                            cache[idx]["ultima_atualizacao"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                if not chave_env:
-                    print(f"Regional '{regional}' não encontrada no mapa de grupos. Verifique a configuração.")
-                    continue
-
-                ## Resgatando os líderes, executivos e gerentes
-                lideres = safe_env_get_split(safe_env_get(LIDERES_REGIONAIS.get(regional)))
-                executivos = safe_env_get_split(safe_env_get(EXECUTIVOS_REGIONAIS.get(regional)))
-                gerentes = safe_env_get_split(safe_env_get(GERENTES_REGIONAIS.get(regional)))
-
-                if nivel_atual == 1:
-                    marcados_whatsapp = lideres
-                elif nivel_atual == 2:
-                    marcados_whatsapp = lideres + executivos
-                elif nivel_atual == 3:
-                    marcados_whatsapp = lideres + executivos + gerentes
-
-                # remove vazios e duplicados
-                marcados_whatsapp = list(set([m for m in marcados_whatsapp if m]))
-
-
-                ## Despachando mensagem emergencial e comercial
-                if tipo == 'Emergencial':
-                    mensagem = (
-                        f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
-                        f" *Regional:* {regional.upper()}\n"
-                        f" *ID:* {idx}\n"
-                        f" *Ocorrência:* {ocorrencia}\n"
-                        f" *Afetação:* {afetacao}\n"
-                        f" *Tipo:* {tipo}\n"
-                        f" *Aguardando:* {minutos} min\n"
-                        f" *Solicitação:* {info if info else 'N/A'}"
-                    )
-                else:
-                    mensagem = (
-                        f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
-                        f" *Regional:* {regional.upper()}\n"
-                        f" *ID:* {idx}\n"
-                        f" *Ocorrência:* {ocorrencia}\n"
-                        f" *Tipo:* {tipo}\n"
-                        f" *Prazo Comercial:* {prazo_comercial}\n"
-                        f" *Aguardando:* {minutos} min\n"
-                        f" *Solicitação:* {info if info else 'N/A'}"
-                    )
-                
-                cache[idx]["nivel"] = nivel_atual
-
-            ## nova ocorrência, adicionando ao cache com nível 1
-            else:
                 cache[idx] = {
-                    "nivel": 0,
+                    "nivel": nivel_atual,
                     "status": status,
                     "regional": regional,
                     "ocorrencia": ocorrencia,
                     "cache_em": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "ultima_atualizacao": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
-            
-            if id_whatsapp is None or id_whatsapp.strip() == "":
-                print(f"ID do grupo WhatsApp para a regional '{regional}' não encontrado. Verifique a configuração.")
+
+                ##print(
+                ##    f"Nova ocorrência cadastrada: {regional} "
+                ##    f"(ID {idx}). Aguardando o tempo mínimo para envio."
+                ##)
+
+                ## Como é uma ocorrência nova, não envia mensagem nesta execução.
+                ##continue
+
+            ## ==========================================================
+            ## OCORRÊNCIA JÁ EXISTENTE
+            ## ==========================================================
+
+            ## verificando se a ocorrencia
+            nivel_atual = cache[idx].get("nivel")
+            cache[idx]["status"] = status
+
+            ## recuperando a última atualização
+            try:
+                ultima_atualizacao = datetime.strptime(
+                    cache[idx]["ultima_atualizacao"],
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            except (KeyError, ValueError):
+                ## Caso o cache antigo não possua uma data válida,
+                ## considera a data atual para evitar envio imediato.
+                ultima_atualizacao = datetime.now()
+
+                cache[idx]["ultima_atualizacao"] = (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                )
+
+            tempo_decorrido = datetime.now() - ultima_atualizacao
+
+            pode_enviar = False
+
+            ## ==========================================================
+            ## SOLICITAÇÃO DE PENDÊNCIA
+            ## Só pode enviar após 2 HORAS da última atualização
+            ## ==========================================================
+
+            if status == 'Pendente':
+
+                if (tempo_decorrido >= timedelta(hours=2) or nivel_atual == 0) and minutos >= 60:
+                    pode_enviar = True
+
+                    ## Atualiza a última atualização somente quando
+                    ## realmente estiver liberando um novo envio.
+                    cache[idx]["ultima_atualizacao"] = (
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
+            ## ==========================================================
+            ## SOLICITAÇÃO DE AGUARDANDO
+            ## Só pode enviar após 3 HORAS da última atualização
+            ## ==========================================================
+
+            elif status == 'Aguardando':
+
+                if (tempo_decorrido >= timedelta(hours=3) or nivel_atual == 0) and minutos >= 60:
+                    pode_enviar = True
+
+                    ## Atualiza a última atualização somente quando
+                    ## realmente estiver liberando um novo envio.
+                    cache[idx]["ultima_atualizacao"] = (
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    )
+
+            ## ==========================================================
+            ## CASO AINDA NÃO TENHA PASSADO O TEMPO NECESSÁRIO
+            ## NÃO ENVIA A MENSAGEM
+            ## ==========================================================
+
+            if not pode_enviar:
+
+                minutos_decorridos = int(tempo_decorrido.total_seconds() / 60)
+
+                if status == 'Pendente':
+                    minutos_necessarios = 120
+
+                elif status == 'Aguardando':
+                    minutos_necessarios = 180
+
+                else:
+                    minutos_necessarios = 0
+
+                if minutos_necessarios > 0:
+                    minutos_restantes = max(
+                        minutos_necessarios - minutos_decorridos,
+                        0
+                    )
                 continue
+
+            ## ==========================================================
+            ## RESGATANDO OS LÍDERES, EXECUTIVOS E GERENTES
+            ## ==========================================================
+
+            lideres = safe_env_get_split(
+                safe_env_get(LIDERES_REGIONAIS.get(regional))
+            )
+
+            executivos = safe_env_get_split(
+                safe_env_get(EXECUTIVOS_REGIONAIS.get(regional))
+            )
+
+            gerentes = safe_env_get_split(
+                safe_env_get(GERENTES_REGIONAIS.get(regional))
+            )
+
+            if nivel_atual == 1:
+                marcados_whatsapp = lideres
+
+            elif nivel_atual == 2:
+                marcados_whatsapp = lideres + executivos
+
+            elif nivel_atual == 3:
+                marcados_whatsapp = lideres + executivos + gerentes
+
+            # remove vazios e duplicados
+            marcados_whatsapp = list(
+                set([m for m in marcados_whatsapp if m])
+            )
+
+            ## ==========================================================
+            ## DESPACHANDO MENSAGEM EMERGENCIAL E COMERCIAL
+            ## ==========================================================
+
+            if tipo == 'Emergencial':
+                mensagem = (
+                    f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
+                    f" *Regional:* {regional.upper()}\n"
+                    f" *ID:* {idx}\n"
+                    f" *Ocorrência:* {ocorrencia}\n"
+                    f" *Afetação:* {afetacao}\n"
+                    f" *Tipo:* {tipo}\n"
+                    f" *Aguardando:* {minutos} min\n"
+                    f" *Solicitação:* {info if info else 'N/A'}"
+                )
+            else:
+                mensagem = (
+                    f"🚨 *Alerta Comunica COI - Recurso Status [{status.upper()}]*\n\n"
+                    f" *Regional:* {regional.upper()}\n"
+                    f" *ID:* {idx}\n"
+                    f" *Ocorrência:* {ocorrencia}\n"
+                    f" *Tipo:* {tipo}\n"
+                    f" *Prazo Comercial:* {prazo_comercial}\n"
+                    f" *Aguardando:* {minutos} min\n"
+                    f" *Solicitação:* {info if info else 'N/A'}"
+                )
+
+            ## Aumentando o nível para a próxima iteração de nivel hierarquico
+            if nivel_atual < 3:
+                nivel_atual += 1
+
+            ## Atualizando o nível no cache
+            cache[idx]["nivel"] = nivel_atual
+
+            ## ==========================================================
+            ## VERIFICANDO ID DO GRUPO WHATSAPP
+            ## ==========================================================
+
+            if id_whatsapp is None or id_whatsapp.strip() == "":
+                print(
+                    f"ID do grupo WhatsApp para a regional '{regional}' "
+                    f"não encontrado. Verifique a configuração."
+                )
+                continue
+
+            ## ==========================================================
+            ## ENVIO DA MENSAGEM
+            ## ==========================================================
 
             try:
                 payload = {
@@ -213,16 +330,33 @@ def enviar_mensagem_pendencias():
                     "regional": regional
                 }
 
-                res = requests.post(safe_env_get("WA_SERVER_URL"), json=payload, timeout=10)
-                            
+                res = requests.post(
+                    safe_env_get("WA_SERVER_URL"),
+                    json=payload,
+                    timeout=10
+                )
+
                 if res.status_code == 200:
-                    print(f"Nível {nivel_atual} enviado para {regional} (ID {idx})")
+                    print(
+                        f"✅ Nível {nivel_atual} enviado para "
+                        f"{regional} (ID {idx})"
+                    )
 
                 else:
-                    print(f"Falha ao enviar mensagem para {regional} (ID {idx}). Status code: {res.status_code}, Response: {res.text}")
+                    print(
+                        f"Falha ao enviar mensagem para {regional} "
+                        f"(ID {idx}). Status code: {res.status_code}, "
+                        f"Response: {res.text}"
+                    )
+
             except Exception as e:
-                print(f"Erro ao enviar mensagem para {regional} (ID {idx}): {e}")
-            sleep(1) 
+                print(
+                    f"Erro ao enviar mensagem para {regional} "
+                    f"(ID {idx}): {e}"
+                )
+
+            sleep(1)
+
         ## removendo ocorrencias que não estão mais no banco de dados, para manter limpo
         cache = {
             idx: dados
@@ -234,14 +368,13 @@ def enviar_mensagem_pendencias():
         with open(arquivo_cache, "w", encoding="utf-8") as arquivo:
             json.dump(cache, arquivo, ensure_ascii=False, indent=4)
 
+
 # Loop agendado
 schedule.every(1).minutes.do(enviar_mensagem_pendencias)
 
 if __name__ == "__main__":
     enviar_mensagem_pendencias()
+
     while True:
         schedule.run_pending()
         time.sleep(1)
-
-
-

@@ -83,7 +83,7 @@ def enviar_mensagem_ocorrencia_afetacao():
         ## Marcando o Ribas caso a afetação seja alta
         marcados_whatsapp = []
         
-        if (clientes_pendentes >= 500):
+        if (clientes_pendentes >= 400):
             
             if clientes_pendentes >= 1500:
                 lideres = safe_env_get_split(safe_env_get("RIBAS_LIDER"))
@@ -96,7 +96,7 @@ def enviar_mensagem_ocorrencia_afetacao():
                 executivos = safe_env_get_split(safe_env_get("DERIVAN_EXECUTIVO"))
                 marcados_whatsapp = lideres + executivos
 
-            elif clientes_pendentes >= 500:
+            elif clientes_pendentes >= 400:
                 marcados_whatsapp = safe_env_get_split(safe_env_get("RIBAS_LIDER"))
 
             else:
@@ -109,7 +109,9 @@ def enviar_mensagem_ocorrencia_afetacao():
             ## Caso exista, então faça uma verficação se a afetação variou
             ## Se variar, reenvie. Caso contrário, não envie
 
+
             data_ultimo_evento_to_date = datetime.strptime(data_ultimo_evento, "%d/%m/%Y %H:%M:%S")
+            print(data_ultimo_evento_to_date)
 
             if ((datetime.now() - data_ultimo_evento_to_date) > timedelta(minutes=10)):
                 if ocorrencia in cache:
